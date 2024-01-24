@@ -71,20 +71,27 @@ int GLX_SIZE, GLY_SIZE, GLZ_SIZE;
 pcl::PointCloud<PointType> cloud_all_map, local_map_filled, point_in_sensor;
 
 
-void rcvDynamicMapCallBack(const sensor_msgs::PointCloud2 &msg)
+
+
+void rcvDynamicMapCallBack(const sensor_msgs::PointCloud2ConstPtr &msg)
 {
+    ROS_WARN("[Lidar Simulator] Dynamic Pointcloud received.. ");
     dynamic_map.clear();
     pcl::fromROSMsg(msg, dynamic_map);
-    // has_dynamic_map_ = true;
+    
 }
 
 
-void rcvStaticMapCallBack(const sensor_msgs::PointCloud2 &msg)
+void rcvStaticMapCallBack(const sensor_msgs::PointCloud2ConstPtr &msg)
 {
+    // 只接收一次静态点云
     if(has_static_map_)
     {
-        return; // 只接收一次静态点云
+        return; 
     }
+
+    ROS_WARN("[Lidar Simulator] Static Pointcloud received..");
+
     pcl::fromROSMsg(msg, static_map);
     render.read_pointcloud(static_map);
 
@@ -94,6 +101,9 @@ void rcvStaticMapCallBack(const sensor_msgs::PointCloud2 &msg)
 
 void rcvOdometryCallbck(const nav_msgs::Odometry &odom)
 {
+
+    ROS_WARN("[Lidar Simulator] odom received..");
+
     has_odom_ = true;
     odom_ = odom;
 
@@ -141,6 +151,7 @@ void renderSensedPoints(const ros::TimerEvent &event)
 
     if(dynamic_map.points.size() > 0)
     {
+        // render 输入接收到的动态点云
         render.input_dyn_clouds(dynamic_map);
         sensor_msgs::PointCloud2 dynamic_points_pcd;
         pcl::toROSMsg(dynamic_map, dynamic_points_pcd);
@@ -209,7 +220,6 @@ int main(int argc, char **argv)
     ros::NodeHandle nh("~");
 
     /* params */
-    nh.param("quadrotor_name", quad_name, std::string("quadrotor"));
     nh.getParam("is_360lidar", is_360lidar);
     nh.getParam("sensing_horizon", sensing_horizon);
     nh.getParam("sensing_rate", sensing_rate);

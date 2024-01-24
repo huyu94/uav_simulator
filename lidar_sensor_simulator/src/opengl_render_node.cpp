@@ -27,9 +27,6 @@ string file_name, pkg_path;
 std::ofstream myfile, collision_checktime_file;
 deque<double> comp_time_vec;
 
-std::string quad_name;
-int drone_num = 0;
-int drone_id = 0;
 
 opengl_pointcloud_render render;
 
