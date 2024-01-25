@@ -9,6 +9,13 @@
         "unordered_map": "cpp",
         "unordered_set": "cpp",
         "vector": "cpp",
-        "system_error": "cpp"
+        "system_error": "cpp",
+        "array": "cpp",
+        "bitset": "cpp",
+        "string_view": "cpp",
+        "initializer_list": "cpp",
+        "ranges": "cpp",
+        "utility": "cpp",
+        "valarray": "cpp"
     }
 }

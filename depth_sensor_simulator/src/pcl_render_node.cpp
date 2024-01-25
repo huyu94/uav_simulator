@@ -71,6 +71,14 @@ Matrix4d cam2world;
 Eigen::Quaterniond cam2world_quat;
 nav_msgs::Odometry _odom;
 
+pcl::search::KdTree<pcl::PointXYZ> kdtree_local_map;
+vector<int>     pointIdxSearch;
+vector<int>     pointRadiusSquaredDistance;
+
+pcl::PointCloud<pcl::PointXYZ> dynamic_map;
+pcl::PointCloud<pcl::PointXYZ> static_map;
+
+
 double sensing_horizon, sensing_rate, estimation_rate; 
 double _x_size, _y_size, _z_size;
 double _gl_xl, _gl_yl, _gl_zl;
@@ -165,10 +173,76 @@ void renderSensedPoints(const ros::TimerEvent & event)
   // if(! has_global_map || ! has_odom) return;
   if( !has_global_map && !has_local_map) return;
   // if( !has_odom ) return;
-  
+  get_local_map();
   render_currentpose();
   render_pcl_world();
 }
+
+
+
+pcl::VoxelGrid<pcl::PointXYZ> voxel_sampler;
+void get_local_map()
+{
+  if(!has_odom)
+  {
+    ROS_WARN("no odom ");
+    return ;
+  }
+  pcl::PoitnCloud<pcl::PointXYZ> all_map;
+  all_map = static_map + dynamic_map;
+  //voxel downsample
+  voxel_sampler.setLeafSize(0.1f,0.1f,0.1f);
+  voxel_sampler.setInputCloud(all_map.makeShared());
+  voxel_sampler.filter(all_map);
+
+  kdtree_local_map.setInputCloud(all_map.makeShared());
+  pcl::PointXYZ searchPoint;
+  searchPoint.x = _odom.pose.pose.position.x;
+  searchPoint.y = _odom.pose.pose.position.y;
+  searchPoint.z = _odom.pose.pose.position.z;
+  pointIdxSearch.clear();
+  pointRadiusSquaredDistance.clear();
+  pcl::PointXYZ pt;
+  if(kdtree_local_map.radiusSearch(searchPoint,sensing_horizon,pointIdxSearch,pointRadiusSquaredDistance) > 0)
+  {
+    dynamic_map.clear();
+    for(int i = 0; i < pointIdxSearch.size(); i++)
+    {
+      pt = all_map.points[pointIdxSearch[i]];
+      dynamic_map.points.push_back(pt);
+    }
+  }
+  else
+  {
+    ROS_WARN("no points in local map");
+  }
+  
+
+}
+
+void rcvDynamicMapCallBack(const sensosr_msgs::PointCloud2 &dynamic_map_in)
+{
+
+}
+
+void recvStaticMapCallBack(const sensosr_msgs::PointCloud2 &static_map_in)
+{
+  if(has_static_map)
+  {
+    return ;
+  }
+
+  ROS_WARN("[Depth Simulator] Static Pointcloud received..");
+  
+  static_map.clear();
+  pcl::fromROSMsg(static_map_in, static_map);
+  printf("static map has points: %d.\n", (int)static_map.size());
+
+  has_static_map = true;
+  static_map_sub.shutdown();
+
+}
+
 
 vector<float> cloud_data;
 void rcvGlobalPointCloudCallBack(const sensor_msgs::PointCloud2 & pointcloud_map )
