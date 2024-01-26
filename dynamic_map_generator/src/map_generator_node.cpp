@@ -9,6 +9,7 @@ int main(int argc, char **argv) {
     RandomDynamicMap map(nh);
     map.init();
     map.renderMap();
+    std::cout << " 1 " << std::endl;
 
     ros::spin();
 
