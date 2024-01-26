@@ -491,6 +491,9 @@ int main(int argc, char **argv)
 
    n.param("min_distance", _min_dist, 1.0);
    n.param("seed", seed_, 0);
+
+
+   
    _x_l = -_x_size / 2.0;
    _x_h = +_x_size / 2.0;
 

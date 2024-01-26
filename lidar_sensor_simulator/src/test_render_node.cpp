@@ -73,16 +73,16 @@ pcl::PointCloud<PointType> cloud_all_map, local_map_filled, point_in_sensor;
 
 
 
-void rcvDynamicMapCallBack(const sensor_msgs::PointCloud2ConstPtr &msg)
+void rcvDynamicMapCallBack(const sensor_msgs::PointCloud2 &dynamic_map_in)
 {
     ROS_WARN("[Lidar Simulator] Dynamic Pointcloud received.. ");
     dynamic_map.clear();
-    pcl::fromROSMsg(msg, dynamic_map);
+    pcl::fromROSMsg(dynamic_map_in, dynamic_map);
     
 }
 
 
-void rcvStaticMapCallBack(const sensor_msgs::PointCloud2ConstPtr &msg)
+void rcvStaticMapCallBack(const sensor_msgs::PointCloud2 &static_map_in)
 {
     // 只接收一次静态点云
     if(has_static_map_)
@@ -92,7 +92,7 @@ void rcvStaticMapCallBack(const sensor_msgs::PointCloud2ConstPtr &msg)
 
     ROS_WARN("[Lidar Simulator] Static Pointcloud received..");
 
-    pcl::fromROSMsg(msg, static_map);
+    pcl::fromROSMsg(static_map_in, static_map);
     render.read_pointcloud(static_map);
 
     has_static_map_ = true;

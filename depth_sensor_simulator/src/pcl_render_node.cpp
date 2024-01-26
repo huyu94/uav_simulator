@@ -25,7 +25,9 @@
 #include <pcl/io/ply_io.h>
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
- #include <pcl_conversions/pcl_conversions.h>
+#include <pcl_conversions/pcl_conversions.h>
+#include <pcl/search/kdtree.h>
+#include <pcl/filters/voxel_grid.h>
 //include opencv and eigen
 // #include <eigen3/Eigen/Dense>
 #include <Eigen/Eigen>
@@ -58,12 +60,12 @@ sensor_msgs::PointCloud2 local_map_pcl;
 sensor_msgs::PointCloud2 local_depth_pcl;
 
 ros::Subscriber odom_sub;
-ros::Subscriber global_map_sub, local_map_sub;
+ros::Subscriber dynamic_map_sub, static_map_sub;
 
 ros::Timer local_sensing_timer, estimation_timer;
 
-bool has_global_map(false);
-bool has_local_map(false);
+bool has_dynamic_map(false);
+bool has_static_map(false);
 bool has_odom(false);
 
 Matrix4d cam02body;
@@ -73,7 +75,7 @@ nav_msgs::Odometry _odom;
 
 pcl::search::KdTree<pcl::PointXYZ> kdtree_local_map;
 vector<int>     pointIdxSearch;
-vector<int>     pointRadiusSquaredDistance;
+vector<float>     pointRadiusSquaredDistance;
 
 pcl::PointCloud<pcl::PointXYZ> dynamic_map;
 pcl::PointCloud<pcl::PointXYZ> static_map;
@@ -90,6 +92,7 @@ Eigen::Vector3d last_pose_world;
 
 void render_currentpose();
 void render_pcl_world();
+bool get_local_map();
 
 inline Eigen::Vector3d gridIndex2coord(const Eigen::Vector3i & index) 
 {
@@ -171,8 +174,12 @@ void pubCameraPose(const ros::TimerEvent & event)
 void renderSensedPoints(const ros::TimerEvent & event)
 { 
   // if(! has_global_map || ! has_odom) return;
-  if( !has_global_map && !has_local_map) return;
+  // if( !has_global_map && !has_local_map) return;
   // if( !has_odom ) return;
+  if(!get_local_map())
+  { 
+    return; 
+  }
   get_local_map();
   render_currentpose();
   render_pcl_world();
@@ -181,20 +188,27 @@ void renderSensedPoints(const ros::TimerEvent & event)
 
 
 pcl::VoxelGrid<pcl::PointXYZ> voxel_sampler;
-void get_local_map()
+vector<float> cloud_data;
+bool get_local_map()
 {
   if(!has_odom)
   {
     ROS_WARN("no odom ");
-    return ;
+    return false;
   }
-  pcl::PoitnCloud<pcl::PointXYZ> all_map;
+  if(!has_dynamic_map && !has_static_map)
+  {
+    ROS_WARN("no global map ");
+    return false;
+  }
+  pcl::PointCloud<pcl::PointXYZ> all_map;
   all_map = static_map + dynamic_map;
   //voxel downsample
   voxel_sampler.setLeafSize(0.1f,0.1f,0.1f);
   voxel_sampler.setInputCloud(all_map.makeShared());
   voxel_sampler.filter(all_map);
 
+  /* local map */
   kdtree_local_map.setInputCloud(all_map.makeShared());
   pcl::PointXYZ searchPoint;
   searchPoint.x = _odom.pose.pose.position.x;
@@ -203,40 +217,56 @@ void get_local_map()
   pointIdxSearch.clear();
   pointRadiusSquaredDistance.clear();
   pcl::PointXYZ pt;
+  cloud_data.clear();
   if(kdtree_local_map.radiusSearch(searchPoint,sensing_horizon,pointIdxSearch,pointRadiusSquaredDistance) > 0)
   {
-    dynamic_map.clear();
     for(int i = 0; i < pointIdxSearch.size(); i++)
     {
       pt = all_map.points[pointIdxSearch[i]];
-      dynamic_map.points.push_back(pt);
+      cloud_data.push_back(pt.x);
+      cloud_data.push_back(pt.y);
+      cloud_data.push_back(pt.z);
+
     }
   }
   else
   {
     ROS_WARN("no points in local map");
+    return false;
   }
-  
+
+  // ROS_WARN("local map has points: %d.\n", (int)cloud_data.size() / 3 );
+  depthrender.set_data(cloud_data);
+  depth_hostptr = (int*) malloc(width * height * sizeof(int));
+
+  return true;
 
 }
 
-void rcvDynamicMapCallBack(const sensosr_msgs::PointCloud2 &dynamic_map_in)
+void rcvDynamicMapCallBack(const sensor_msgs::PointCloud2 &dynamic_map_in)
 {
+  // ROS_WARN("[Depth Simulator] Dynamic Pointcloud received..");
 
+  dynamic_map.clear();
+  pcl::fromROSMsg(dynamic_map_in, dynamic_map);
+  // printf("dynamic map has points: %d.\n", (int)dynamic_map.size());
+
+
+  has_dynamic_map = true;
 }
 
-void recvStaticMapCallBack(const sensosr_msgs::PointCloud2 &static_map_in)
+void recvStaticMapCallBack(const sensor_msgs::PointCloud2 &static_map_in)
 {
   if(has_static_map)
   {
     return ;
   }
 
-  ROS_WARN("[Depth Simulator] Static Pointcloud received..");
+  // ROS_WARN("[Depth Simulator] Static Pointcloud received..");
   
   static_map.clear();
   pcl::fromROSMsg(static_map_in, static_map);
-  printf("static map has points: %d.\n", (int)static_map.size());
+  // printf("static map has points: %d.\n", (int)static_map.size());
 
   has_static_map = true;
   static_map_sub.shutdown();
@@ -244,63 +274,63 @@ void recvStaticMapCallBack(const sensosr_msgs::PointCloud2 &static_map_in)
 }
 
 
-vector<float> cloud_data;
-void rcvGlobalPointCloudCallBack(const sensor_msgs::PointCloud2 & pointcloud_map )
-{
-  if(has_global_map)
-    return;
+// vector<float> cloud_data;
+// void rcvGlobalPointCloudCallBack(const sensor_msgs::PointCloud2 & pointcloud_map )
+// {
+//   if(has_global_map)
+//     return;
 
-  ROS_WARN("[Depth Simulator] Global Pointcloud received..");
-  //load global map
-  pcl::PointCloud<pcl::PointXYZ> cloudIn;
-  pcl::PointXYZ pt_in;
-  //transform map to point cloud format
-  pcl::fromROSMsg(pointcloud_map, cloudIn);
-  for(int i = 0; i < int(cloudIn.points.size()); i++){
-    if (isnan(cloudIn.points[i].x) || isnan(cloudIn.points[i].y) || isnan(cloudIn.points[i].z) || 
-      isinf(cloudIn.points[i].x) || isinf(cloudIn.points[i].y) || isinf(cloudIn.points[i].z)) {
-      continue;
-    }
-    pt_in = cloudIn.points[i];
-    cloud_data.push_back(pt_in.x);
-    cloud_data.push_back(pt_in.y);
-    cloud_data.push_back(pt_in.z);
-  }
-  printf("global map has points: %d.\n", (int)cloud_data.size() / 3 );
-  //pass cloud_data to depth render
-  depthrender.set_data(cloud_data);
-  depth_hostptr = (int*) malloc(width * height * sizeof(int));
+//   ROS_WARN("[Depth Simulator] Global Pointcloud received..");
+//   //load global map
+//   pcl::PointCloud<pcl::PointXYZ> cloudIn;
+//   pcl::PointXYZ pt_in;
+//   //transform map to point cloud format
+//   pcl::fromROSMsg(pointcloud_map, cloudIn);
+//   for(int i = 0; i < int(cloudIn.points.size()); i++){
+//     if (isnan(cloudIn.points[i].x) || isnan(cloudIn.points[i].y) || isnan(cloudIn.points[i].z) || 
+//       isinf(cloudIn.points[i].x) || isinf(cloudIn.points[i].y) || isinf(cloudIn.points[i].z)) {
+//       continue;
+//     }
+//     pt_in = cloudIn.points[i];
+//     cloud_data.push_back(pt_in.x);
+//     cloud_data.push_back(pt_in.y);
+//     cloud_data.push_back(pt_in.z);
+//   }
+//   printf("global map has points: %d.\n", (int)cloud_data.size() / 3 );
+//   //pass cloud_data to depth render
+//   depthrender.set_data(cloud_data);
+//   depth_hostptr = (int*) malloc(width * height * sizeof(int));
 
-  has_global_map = true;
-  global_map_sub.shutdown();
-}
+//   has_global_map = true;
+//   global_map_sub.shutdown();
+// }
 
-void rcvLocalPointCloudCallBack(const sensor_msgs::PointCloud2 & pointcloud_map )
-{
-  // ROS_WARN("Local Pointcloud received..");
-  //load local map
-  pcl::PointCloud<pcl::PointXYZ> cloudIn;
-  pcl::PointXYZ pt_in;
-  //transform map to point cloud format
-  pcl::fromROSMsg(pointcloud_map, cloudIn);
+// void rcvLocalPointCloudCallBack(const sensor_msgs::PointCloud2 & pointcloud_map )
+// {
+//   // ROS_WARN("Local Pointcloud received..");
+//   //load local map
+//   pcl::PointCloud<pcl::PointXYZ> cloudIn;
+//   pcl::PointXYZ pt_in;
+//   //transform map to point cloud format
+//   pcl::fromROSMsg(pointcloud_map, cloudIn);
 
-  if(cloudIn.points.size() == 0) return;
-  cloud_data.clear();
-  for(int i = 0; i < int(cloudIn.points.size()); i++){
-    pt_in = cloudIn.points[i];
-    Eigen::Vector3d pose_pt(pt_in.x, pt_in.y, pt_in.z);
-    //pose_pt = gridIndex2coord(coord2gridIndex(pose_pt));
-    cloud_data.push_back(pose_pt(0));
-    cloud_data.push_back(pose_pt(1));
-    cloud_data.push_back(pose_pt(2));
-  }
-  // printf("local map has points: %d.\n", (int)cloud_data.size() / 3 );
-  //pass cloud_data to depth render
-  depthrender.set_data(cloud_data);
-  depth_hostptr = (int*) malloc(width * height * sizeof(int));
+//   if(cloudIn.points.size() == 0) return;
+//   cloud_data.clear();
+//   for(int i = 0; i < int(cloudIn.points.size()); i++){
+//     pt_in = cloudIn.points[i];
+//     Eigen::Vector3d pose_pt(pt_in.x, pt_in.y, pt_in.z);
+//     //pose_pt = gridIndex2coord(coord2gridIndex(pose_pt));
+//     cloud_data.push_back(pose_pt(0));
+//     cloud_data.push_back(pose_pt(1));
+//     cloud_data.push_back(pose_pt(2));
+//   }
+//   // printf("local map has points: %d.\n", (int)cloud_data.size() / 3 );
+//   //pass cloud_data to depth render
+//   depthrender.set_data(cloud_data);
+//   depth_hostptr = (int*) malloc(width * height * sizeof(int));
 
-  has_local_map = true;
-}
+//   has_local_map = true;
+// }
 
 void render_pcl_world()
 {
@@ -433,8 +463,10 @@ int main(int argc, char **argv)
   //init cam2world transformation
   cam2world = Matrix4d::Identity();
   //subscribe point cloud
-  global_map_sub = nh.subscribe( "global_map", 1,  rcvGlobalPointCloudCallBack);  
-  local_map_sub  = nh.subscribe( "local_map",  1,  rcvLocalPointCloudCallBack);  
+  static_map_sub = nh.subscribe( "static_map", 1, recvStaticMapCallBack);
+  dynamic_map_sub = nh.subscribe( "dynamic_map", 1, rcvDynamicMapCallBack);
+  // global_map_sub = nh.subscribe( "global_map", 1,  rcvGlobalPointCloudCallBack);  
+  // local_map_sub  = nh.subscribe( "local_map",  1,  rcvLocalPointCloudCallBack);  
   odom_sub       = nh.subscribe( "odometry",   50, rcvOdometryCallbck   );  
 
   //publisher depth image and color image
