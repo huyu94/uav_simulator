@@ -75,10 +75,13 @@ pcl::PointCloud<PointType> cloud_all_map, local_map_filled, point_in_sensor;
 
 void rcvDynamicMapCallBack(const sensor_msgs::PointCloud2 &dynamic_map_in)
 {
-    ROS_WARN("[Lidar Simulator] Dynamic Pointcloud received.. ");
+    // ROS_WARN("[Lidar Simulator] Dynamic Pointcloud received.. ");
     dynamic_map.clear();
-    pcl::fromROSMsg(dynamic_map_in, dynamic_map);
-    
+    pcl::PointCloud<pcl::PointXYZ> temp_cloud;
+    pcl::fromROSMsg(dynamic_map_in, temp_cloud);
+    pcl::copyPointCloud(temp_cloud, dynamic_map);
+    has_dynamic_map_ = true;
+
 }
 
 
@@ -90,8 +93,7 @@ void rcvStaticMapCallBack(const sensor_msgs::PointCloud2 &static_map_in)
         return; 
     }
 
-    ROS_WARN("[Lidar Simulator] Static Pointcloud received..");
-
+    // ROS_WARN("[Lidar Simulator] Static Pointcloud received..");
     pcl::fromROSMsg(static_map_in, static_map);
     render.read_pointcloud(static_map);
 
@@ -102,7 +104,7 @@ void rcvStaticMapCallBack(const sensor_msgs::PointCloud2 &static_map_in)
 void rcvOdometryCallbck(const nav_msgs::Odometry &odom)
 {
 
-    ROS_WARN("[Lidar Simulator] odom received..");
+    // ROS_WARN("[Lidar Simulator] odom received..");
 
     has_odom_ = true;
     odom_ = odom;
@@ -129,11 +131,16 @@ int comp_time_count = 0;
 void renderSensedPoints(const ros::TimerEvent &event)
 {
     ros::Time t1 = ros::Time::now();
+
     if (!has_odom_)
     {
         return;
     }
-
+    if(!has_static_map_)
+    {
+        ROS_WARN("[Lidar Sensor Simulator] the static map is not received yet, waiting...");
+        return;
+    }
     Eigen::Quaternionf q;
     q.x() = odom_.pose.pose.orientation.x;
     q.y() = odom_.pose.pose.orientation.y;
@@ -160,25 +167,26 @@ void renderSensedPoints(const ros::TimerEvent &event)
         pub_dyncloud.publish(dynamic_points_pcd);
     }
     // trans and publish the dynamic point cloud, 发布动态点云
-
+    // ROS_INFO("Here");
     render.render_pointcloud(local_map, pos, q, time_frominit);
 
-    ros::Time t_afterrender = ros::Time::now();
-    double comp_time_temp = (t_afterrender - t1).toSec();
-    myfile << comp_time_temp << endl;
-    comp_time_vec.push_back(comp_time_temp);
-    if (comp_time_count > 20)
-    {
-        comp_time_vec.pop_front();
-        geometry_msgs::PoseStamped totaltime_pub;
-        totaltime_pub.pose.position.x = accumulate(comp_time_vec.begin(), comp_time_vec.end(), 0.0) / comp_time_vec.size();
-        comp_time_pub.publish(totaltime_pub);
-        ROS_INFO("Temp compute time = %lf, average compute time = %lf", comp_time_temp, totaltime_pub.pose.position.x);
-    }
-    else
-    {
-        comp_time_count++;
-    }
+    // ROS_WARN("local map size : %d ", local_map->size());
+    // ros::Time t_afterrender = ros::Time::now();
+    // double comp_time_temp = (t_afterrender - t1).toSec();
+    // myfile << comp_time_temp << endl;
+    // comp_time_vec.push_back(comp_time_temp);
+    // if (comp_time_count > 20)
+    // {
+    //     comp_time_vec.pop_front();
+    //     geometry_msgs::PoseStamped totaltime_pub;
+    //     totaltime_pub.pose.position.x = accumulate(comp_time_vec.begin(), comp_time_vec.end(), 0.0) / comp_time_vec.size();
+    //     comp_time_pub.publish(totaltime_pub);
+    //     ROS_INFO("Temp compute time = %lf, average compute time = %lf", comp_time_temp, totaltime_pub.pose.position.x);
+    // }
+    // else
+    // {
+    //     comp_time_count++;
+    // }
 
     local_map->width = local_map->points.size();
     local_map->height = 1;
@@ -207,11 +215,12 @@ void renderSensedPoints(const ros::TimerEvent &event)
     point_in_sensor.height = 1;
     point_in_sensor.is_dense = true;
 
-    std::string sensor_frame_id_ = "/sensor";
+    std::string sensor_frame_id_ = "sensor";
     pcl::toROSMsg(point_in_sensor, sensor_map_pcd);
     sensor_map_pcd.header.frame_id = sensor_frame_id_;
     sensor_map_pcd.header.stamp = time_stamp_;
     pub_intercloud.publish(sensor_map_pcd);
+
 }
 
 int main(int argc, char **argv)
@@ -258,7 +267,7 @@ int main(int argc, char **argv)
     render.setParameters(image_width, image_height, 250, 250, downsample_res, polar_resolution, yaw_fov, vertical_fov, 0.1, sensing_horizon, sensing_rate, use_avia_pattern, use_os128_pattern, use_minicf_pattern);
 
     // 读取全局点云地图
-    // file_name = argv[1];
+    // file_name = std::string("/home/huyu/workspaces/topo-risk-aware-planner/src/uav_simulator/lidar_sensor_simulator/resource/small_forest01cutoff.pcd");
     // render.read_pointcloud_fromfile(file_name);
 
 
@@ -279,6 +288,9 @@ int main(int argc, char **argv)
     double sensing_duration = 1.0 / sensing_rate;
     double estimate_duration = 1.0 / estimation_rate;
 
+    t_init = ros::Time::now();
+    /* render timer */
+    local_sensing_timer = nh.createTimer(ros::Duration(sensing_duration), renderSensedPoints);
     /* 打开记录数据句柄 */
     pkg_path = ros::package::getPath("lidar_sensing_node");
     pkg_path.append("/data/" + quad_name + "_GPU_time_consumption.txt"); // append 追加
