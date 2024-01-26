@@ -1,175 +1,177 @@
-#include "self_msgs_and_srvs/GlbObsRcv.h"
-
-#include <iostream>
-#include <pcl/io/pcd_io.h>
-#include <pcl_conversions/pcl_conversions.h>
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
+// #include <pcl/search/kdtree.h>
 #include <pcl/kdtree/kdtree_flann.h>
-#include <pcl/search/kdtree.h>
-#include <pcl/search/impl/kdtree.hpp>
+#include <pcl_conversions/pcl_conversions.h>
+#include <iostream>
 
-#include <ros/ros.h>
-#include <ros/console.h>
-#include <sensor_msgs/PointCloud2.h>
-#include <geometry_msgs/Vector3.h>
 #include <geometry_msgs/PoseStamped.h>
-#include <nav_msgs/Odometry.h>
-#include <Eigen/Eigen>
+#include <geometry_msgs/Vector3.h>
 #include <math.h>
+#include <nav_msgs/Odometry.h>
+#include <ros/console.h>
+#include <ros/ros.h>
+#include <sensor_msgs/PointCloud2.h>
+#include <Eigen/Eigen>
 #include <random>
 
 using namespace std;
-using namespace Eigen;
 
+// pcl::search::KdTree<pcl::PointXYZ> kdtreeLocalMap;
+pcl::KdTreeFLANN<pcl::PointXYZ> kdtreeLocalMap;
+vector<int> pointIdxRadiusSearch;
+vector<float> pointRadiusSquaredDistance;
+
+int seed_;
+random_device rd;
+// default_random_engine eng(0);
+default_random_engine eng(seed_);
+uniform_real_distribution<double> rand_x;
+uniform_real_distribution<double> rand_y;
+uniform_real_distribution<double> rand_w;
+uniform_real_distribution<double> rand_h;
+uniform_real_distribution<double> rand_inf;
+
+ros::Publisher _local_map_pub;
 ros::Publisher _all_map_pub;
+ros::Publisher click_map_pub_;
 ros::Subscriber _odom_sub;
 
-int _obs_num, _cir_num;
-double _x_size, _y_size, _z_size, _init_x, _init_y, _resolution, _sense_rate;
-double _x_l, _x_h, _y_l, _y_h, _w_l, _w_h, _h_l, _h_h, _w_c_l, _w_c_h;
+vector<double> _state;
 
-bool _has_map  = false;
+int _obs_num;
+double _x_size, _y_size, _z_size;
+double _x_l, _x_h, _y_l, _y_h, _w_l, _w_h, _h_l, _h_h;
+double _z_limit, _sensing_range, _resolution, _sense_rate, _init_x, _init_y;
+double _min_dist;
+
+bool _map_ok = false;
+bool _has_odom = false;
+
+int circle_num_;
+double radius_l_, radius_h_, z_l_, z_h_;
+double theta_;
+uniform_real_distribution<double> rand_radius_;
+uniform_real_distribution<double> rand_radius2_;
+uniform_real_distribution<double> rand_theta_;
+uniform_real_distribution<double> rand_z_;
 
 sensor_msgs::PointCloud2 globalMap_pcd;
 pcl::PointCloud<pcl::PointXYZ> cloudMap;
 
-pcl::search::KdTree<pcl::PointXYZ> kdtreeMap;
-vector<int>     pointIdxSearch;
-vector<float>   pointSquaredDistance;      
+sensor_msgs::PointCloud2 localMap_pcd;
+pcl::PointCloud<pcl::PointXYZ> clicked_cloud_;
 
 void RandomMapGenerate()
-{  
-   random_device rd;
-   default_random_engine eng(rd());
-   
-   uniform_real_distribution<double> rand_x = uniform_real_distribution<double>(_x_l, _x_h );
-   uniform_real_distribution<double> rand_y = uniform_real_distribution<double>(_y_l, _y_h );
-   uniform_real_distribution<double> rand_w = uniform_real_distribution<double>(_w_l, _w_h);
-   uniform_real_distribution<double> rand_h = uniform_real_distribution<double>(_h_l, _h_h);
-
-   uniform_real_distribution<double> rand_x_circle = uniform_real_distribution<double>(_x_l + 1.0, _x_h - 1.0);
-   uniform_real_distribution<double> rand_y_circle = uniform_real_distribution<double>(_y_l + 1.0, _y_h - 1.0);
-   uniform_real_distribution<double> rand_r_circle = uniform_real_distribution<double>(_w_c_l    , _w_c_h    );
-
-   uniform_real_distribution<double> rand_roll      = uniform_real_distribution<double>(- M_PI,     + M_PI);
-   uniform_real_distribution<double> rand_pitch     = uniform_real_distribution<double>(+ M_PI/4.0, + M_PI/2.0);
-   uniform_real_distribution<double> rand_yaw       = uniform_real_distribution<double>(+ M_PI/4.0, + M_PI/2.0);
-   uniform_real_distribution<double> rand_ellipse_c = uniform_real_distribution<double>(0.5, 2.0);
-   uniform_real_distribution<double> rand_num       = uniform_real_distribution<double>(0.0, 1.0);
-
+{
    pcl::PointXYZ pt_random;
 
-   // firstly, we put some circles
-   for(int i = 0; i < _cir_num; i ++)
+   rand_x = uniform_real_distribution<double>(_x_l, _x_h);
+   rand_y = uniform_real_distribution<double>(_y_l, _y_h);
+   rand_w = uniform_real_distribution<double>(_w_l, _w_h);
+   rand_h = uniform_real_distribution<double>(_h_l, _h_h);
+
+   rand_radius_ = uniform_real_distribution<double>(radius_l_, radius_h_);
+   rand_radius2_ = uniform_real_distribution<double>(radius_l_, 1.2);
+   rand_theta_ = uniform_real_distribution<double>(-theta_, theta_);
+   rand_z_ = uniform_real_distribution<double>(z_l_, z_h_);
+
+   // generate polar obs
+   for (int i = 0; i < _obs_num; i++)
    {
-      double x0, y0, z0, R;
-      std::vector<Vector3d> circle_set;
+      double x, y, w, h;
+      x = rand_x(eng);
+      y = rand_y(eng);
+      w = rand_w(eng);
 
-      x0   = rand_x_circle(eng);
-      y0   = rand_y_circle(eng);
-      z0   = rand_h(eng) / 2.0;  
-      R    = rand_r_circle(eng);
-
-      if(sqrt( pow(x0-_init_x, 2) + pow(y0-_init_y, 2) ) < 3.0 ) 
+      if (sqrt(pow(x - _init_x, 2) + pow(y - _init_y, 2)) < 2.0)
+      {
+         i--;
          continue;
-
-      double a, b;
-      a = rand_ellipse_c(eng);
-      b = rand_ellipse_c(eng);
-
-      double x, y, z;
-      Vector3d pt3, pt3_rot;
-      for(double theta = -M_PI; theta < M_PI; theta += 0.025)
-      {  
-         x = a * cos(theta) * R;
-         y = b * sin(theta) * R;
-         z = 0;
-         pt3 << x, y, z;
-         circle_set.push_back(pt3);
       }
-      // Define a random 3d rotation matrix
-      Matrix3d Rot;
-      double roll,  pitch, yaw;
-      double alpha, beta,  gama;
-      roll  = rand_roll(eng); // alpha
-      pitch = rand_pitch(eng); // beta
-      yaw   = rand_yaw(eng); // gama
 
-      alpha = roll;
-      beta  = pitch;
-      gama  = yaw;
-
-      double p = rand_num(eng);
-      if(p < 0.5)
+      if (sqrt(pow(x - 19.0, 2) + pow(y - 0.0, 2)) < 2.0)
       {
-         beta = M_PI / 2.0;
-         gama = M_PI / 2.0;
-      }
-
-      Rot << cos(alpha) * cos(gama)  - cos(beta) * sin(alpha) * sin(gama), - cos(beta) * cos(gama) * sin(alpha) - cos(alpha) * sin(gama),   sin(alpha) * sin(beta),
-             cos(gama)  * sin(alpha) + cos(alpha) * cos(beta) * sin(gama),   cos(alpha) * cos(beta) * cos(gama) - sin(alpha) * sin(gama), - cos(alpha) * sin(beta),        
-             sin(beta)  * sin(gama),                                         cos(gama) * sin(beta),                                         cos(beta);
-
-      for(auto pt: circle_set)
-      {
-         pt3_rot = Rot * pt;
-         pt_random.x = pt3_rot(0) + x0 + 0.001;
-         pt_random.y = pt3_rot(1) + y0 + 0.001;
-         pt_random.z = pt3_rot(2) + z0 + 0.001;
-
-         if(pt_random.z >= 0.0)
-            cloudMap.points.push_back( pt_random );
-      }
-   }
-
-   bool is_kdtree_empty = false;
-   if(cloudMap.points.size() > 0)
-      kdtreeMap.setInputCloud( cloudMap.makeShared() ); 
-   else
-      is_kdtree_empty = true;
-
-   // then, we put some pilar
-   for(int i = 0; i < _obs_num; i ++)
-   {
-      double x, y, w, h; 
-      x    = rand_x(eng);
-      y    = rand_y(eng);
-      w    = rand_w(eng);
-
-      if(sqrt( pow(x - _init_x, 2) + pow(y - _init_y, 2) ) < 3.0 ) 
+         i--;
          continue;
-      
-      pcl::PointXYZ searchPoint(x, y, (_h_l + _h_h)/2.0);
-      pointIdxSearch.clear();
-      pointSquaredDistance.clear();
-      
-      if(is_kdtree_empty == false)
-      {
-         if ( kdtreeMap.nearestKSearch (searchPoint, 1, pointIdxSearch, pointSquaredDistance) > 0 )
-         {
-            if(sqrt(pointSquaredDistance[0]) < 1.0 )
-               continue;
-         }
       }
 
-      x = floor(x/_resolution) * _resolution + _resolution / 2.0;
-      y = floor(y/_resolution) * _resolution + _resolution / 2.0;
+      x = floor(x / _resolution) * _resolution + _resolution / 2.0;
+      y = floor(y / _resolution) * _resolution + _resolution / 2.0;
 
-      int widNum = ceil(w/_resolution);
-      for(int r = -widNum/2.0; r < widNum/2.0; r ++ )
-      {
-         for(int s = -widNum/2.0; s < widNum/2.0; s ++ )
+      int widNum = ceil(w / _resolution);
+
+      for (int r = -widNum / 2.0; r < widNum / 2.0; r++)
+         for (int s = -widNum / 2.0; s < widNum / 2.0; s++)
          {
-            h    = rand_h(eng);  
-            int heiNum = 2.0 * ceil(h/_resolution);
-            for(int t = 0; t < heiNum; t ++ ){
-               pt_random.x = x + (r+0.0) * _resolution + 0.001;
-               pt_random.y = y + (s+0.0) * _resolution + 0.001;
-               pt_random.z =     (t+0.0) * _resolution * 0.5 -1.0 + 0.001;
-               cloudMap.points.push_back( pt_random );
+            h = rand_h(eng);
+            int heiNum = ceil(h / _resolution);
+            for (int t = -20; t < heiNum; t++)
+            {
+               pt_random.x = x + (r + 0.5) * _resolution + 1e-2;
+               pt_random.y = y + (s + 0.5) * _resolution + 1e-2;
+               pt_random.z = (t + 0.5) * _resolution + 1e-2;
+               cloudMap.points.push_back(pt_random);
             }
          }
+   }
+
+   // generate circle obs
+   for (int i = 0; i < circle_num_; ++i)
+   {
+      double x, y, z;
+      x = rand_x(eng);
+      y = rand_y(eng);
+      z = rand_z_(eng);
+
+      if (sqrt(pow(x - _init_x, 2) + pow(y - _init_y, 2)) < 2.0)
+      {
+         i--;
+         continue;
+      }
+
+      if (sqrt(pow(x - 19.0, 2) + pow(y - 0.0, 2)) < 2.0)
+      {
+         i--;
+         continue;
+      }
+
+      x = floor(x / _resolution) * _resolution + _resolution / 2.0;
+      y = floor(y / _resolution) * _resolution + _resolution / 2.0;
+      z = floor(z / _resolution) * _resolution + _resolution / 2.0;
+
+      Eigen::Vector3d translate(x, y, z);
+
+      double theta = rand_theta_(eng);
+      Eigen::Matrix3d rotate;
+      rotate << cos(theta), -sin(theta), 0.0, sin(theta), cos(theta), 0.0, 0, 0,
+          1;
+
+      double radius1 = rand_radius_(eng);
+      double radius2 = rand_radius2_(eng);
+
+      // draw a circle centered at (x,y,z)
+      Eigen::Vector3d cpt;
+      for (double angle = 0.0; angle < 6.282; angle += _resolution / 2)
+      {
+         cpt(0) = 0.0;
+         cpt(1) = radius1 * cos(angle);
+         cpt(2) = radius2 * sin(angle);
+
+         // inflate
+         Eigen::Vector3d cpt_if;
+         for (int ifx = -0; ifx <= 0; ++ifx)
+            for (int ify = -0; ify <= 0; ++ify)
+               for (int ifz = -0; ifz <= 0; ++ifz)
+               {
+                  cpt_if = cpt + Eigen::Vector3d(ifx * _resolution, ify * _resolution,
+                                                 ifz * _resolution);
+                  cpt_if = rotate * cpt_if + Eigen::Vector3d(x, y, z);
+                  pt_random.x = cpt_if(0);
+                  pt_random.y = cpt_if(1);
+                  pt_random.z = cpt_if(2);
+                  cloudMap.push_back(pt_random);
+               }
       }
    }
 
@@ -177,68 +179,338 @@ void RandomMapGenerate()
    cloudMap.height = 1;
    cloudMap.is_dense = true;
 
-   _has_map = true;
-   
-   pcl::toROSMsg(cloudMap, globalMap_pcd);
-   globalMap_pcd.header.frame_id = "map";
+   ROS_WARN("Finished generate random map ");
+
+   kdtreeLocalMap.setInputCloud(cloudMap.makeShared());
+
+   _map_ok = true;
 }
 
+void RandomMapGenerateCylinder()
+{
+   pcl::PointXYZ pt_random;
+
+   vector<Eigen::Vector2d> obs_position;
+
+   rand_x = uniform_real_distribution<double>(_x_l, _x_h);
+   rand_y = uniform_real_distribution<double>(_y_l, _y_h);
+   rand_w = uniform_real_distribution<double>(_w_l, _w_h);
+   rand_h = uniform_real_distribution<double>(_h_l, _h_h);
+   rand_inf = uniform_real_distribution<double>(0.5, 1.5);
+
+   rand_radius_ = uniform_real_distribution<double>(radius_l_, radius_h_);
+   rand_radius2_ = uniform_real_distribution<double>(radius_l_, 1.2);
+   rand_theta_ = uniform_real_distribution<double>(-theta_, theta_);
+   rand_z_ = uniform_real_distribution<double>(z_l_, z_h_);
+
+   // generate polar obs
+   for (int i = 0; i < _obs_num && ros::ok(); i++)
+   {
+      double x, y, w, h, inf;
+      x = rand_x(eng);
+      y = rand_y(eng);
+      w = rand_w(eng);
+      inf = rand_inf(eng);
+
+      if (sqrt(pow(x - _init_x, 2) + pow(y - _init_y, 2)) < 2.0)
+      {
+         i--;
+         continue;
+      }
+
+      if (sqrt(pow(x - 19.0, 2) + pow(y - 0.0, 2)) < 2.0)
+      {
+         i--;
+         continue;
+      }
+
+      bool flag_continue = false;
+      for (auto p : obs_position)
+         if ((Eigen::Vector2d(x, y) - p).norm() < _min_dist /*metres*/)
+         {
+            i--;
+            flag_continue = true;
+            break;
+         }
+      if (flag_continue)
+         continue;
+
+      obs_position.push_back(Eigen::Vector2d(x, y));
+
+      x = floor(x / _resolution) * _resolution + _resolution / 2.0;
+      y = floor(y / _resolution) * _resolution + _resolution / 2.0;
+
+      int widNum = ceil((w * inf) / _resolution);
+      double radius = (w * inf) / 2;
+
+      for (int r = -widNum / 2.0; r < widNum / 2.0; r++)
+         for (int s = -widNum / 2.0; s < widNum / 2.0; s++)
+         {
+            h = rand_h(eng);
+            int heiNum = ceil(h / _resolution);
+            for (int t = -30; t < heiNum; t++)
+            {
+               double temp_x = x + (r + 0.5) * _resolution + 1e-2;
+               double temp_y = y + (s + 0.5) * _resolution + 1e-2;
+               double temp_z = (t + 0.5) * _resolution + 1e-2;
+               if ((Eigen::Vector2d(temp_x, temp_y) - Eigen::Vector2d(x, y)).norm() <= radius)
+               {
+                  pt_random.x = temp_x;
+                  pt_random.y = temp_y;
+                  pt_random.z = temp_z;
+                  cloudMap.points.push_back(pt_random);
+               }
+            }
+         }
+   }
+
+   // generate circle obs
+   for (int i = 0; i < circle_num_; ++i)
+   {
+      double x, y, z;
+      x = rand_x(eng);
+      y = rand_y(eng);
+      z = rand_z_(eng);
+
+      if (sqrt(pow(x - _init_x, 2) + pow(y - _init_y, 2)) < 2.0)
+      {
+         i--;
+         continue;
+      }
+
+      if (sqrt(pow(x - 19.0, 2) + pow(y - 0.0, 2)) < 2.0)
+      {
+         i--;
+         continue;
+      }
+
+      x = floor(x / _resolution) * _resolution + _resolution / 2.0;
+      y = floor(y / _resolution) * _resolution + _resolution / 2.0;
+      z = floor(z / _resolution) * _resolution + _resolution / 2.0;
+
+      Eigen::Vector3d translate(x, y, z);
+
+      double theta = rand_theta_(eng);
+      Eigen::Matrix3d rotate;
+      rotate << cos(theta), -sin(theta), 0.0, sin(theta), cos(theta), 0.0, 0, 0,
+          1;
+
+      double radius1 = rand_radius_(eng);
+      double radius2 = rand_radius2_(eng);
+
+      // draw a circle centered at (x,y,z)
+      Eigen::Vector3d cpt;
+      for (double angle = 0.0; angle < 6.282; angle += _resolution / 2)
+      {
+         cpt(0) = 0.0;
+         cpt(1) = radius1 * cos(angle);
+         cpt(2) = radius2 * sin(angle);
+
+         // inflate
+         Eigen::Vector3d cpt_if;
+         for (int ifx = -0; ifx <= 0; ++ifx)
+            for (int ify = -0; ify <= 0; ++ify)
+               for (int ifz = -0; ifz <= 0; ++ifz)
+               {
+                  cpt_if = cpt + Eigen::Vector3d(ifx * _resolution, ify * _resolution,
+                                                 ifz * _resolution);
+                  cpt_if = rotate * cpt_if + Eigen::Vector3d(x, y, z);
+                  pt_random.x = cpt_if(0);
+                  pt_random.y = cpt_if(1);
+                  pt_random.z = cpt_if(2);
+                  cloudMap.push_back(pt_random);
+               }
+      }
+   }
+
+   // generate floor
+   // pcl::PointXYZ pt;
+   // pt.z = 0.1;
+   // for ( pt.x = _x_l; pt.x <= _x_h; pt.x += _resolution )
+   //   for ( pt.y = _y_l; pt.y <= _y_h; pt.y += _resolution )
+   //   {
+   //     cloudMap.push_back(pt);
+   //   }
+
+   cloudMap.width = cloudMap.points.size();
+   cloudMap.height = 1;
+   cloudMap.is_dense = true;
+
+   ROS_WARN("Finished generate random map ");
+
+   kdtreeLocalMap.setInputCloud(cloudMap.makeShared());
+
+   _map_ok = true;
+}
+
+void rcvOdometryCallbck(const nav_msgs::Odometry odom)
+{
+   if (odom.child_frame_id == "X" || odom.child_frame_id == "O")
+      return;
+   _has_odom = true;
+
+   _state = {odom.pose.pose.position.x,
+             odom.pose.pose.position.y,
+             odom.pose.pose.position.z,
+             odom.twist.twist.linear.x,
+             odom.twist.twist.linear.y,
+             odom.twist.twist.linear.z,
+             0.0,
+             0.0,
+             0.0};
+}
+
+int i = 0;
 void pubSensedPoints()
 {
-   if( !_has_map ) return;
+   // if (i < 10) {
+   pcl::toROSMsg(cloudMap, globalMap_pcd);
+   globalMap_pcd.header.frame_id = "world";
    _all_map_pub.publish(globalMap_pcd);
-}
-
-bool pubGlbObs(self_msgs_and_srvs::GlbObsRcv::Request &req, self_msgs_and_srvs::GlbObsRcv::Response &res)
-{
-  pubSensedPoints();
-  return true;
-}
-
-int main (int argc, char** argv) 
-{        
-   ros::init (argc, argv, "static_map_generator");
-   ros::NodeHandle n( "~" );
-
-   _all_map_pub = n.advertise<sensor_msgs::PointCloud2>("static_map", 1); 
-
-   n.param("init_state_x", _init_x,       0.0);
-   n.param("init_state_y", _init_y,       0.0);
-
-   n.param("map/x_size",  _x_size, 50.0);
-   n.param("map/y_size",  _y_size, 50.0);
-   n.param("map/z_size",  _z_size, 5.0 );
-
-   n.param("map/obs_num",    _obs_num,  30);
-   n.param("map/circle_num", _cir_num,  30);
-   n.param("map/resolution", _resolution, 0.2);
-
-   n.param("ObstacleShape/lower_rad", _w_l,   0.3);
-   n.param("ObstacleShape/upper_rad", _w_h,   0.8);
-   n.param("ObstacleShape/lower_hei", _h_l,   3.0);
-   n.param("ObstacleShape/upper_hei", _h_h,   7.0);
-
-   n.param("CircleShape/lower_circle_rad", _w_c_l, 0.3);
-   n.param("CircleShape/upper_circle_rad", _w_c_h, 0.8);
-
-   n.param("sensing/rate", _sense_rate, 1.0);
-
-   _x_l = - _x_size / 2.0;
-   _x_h = + _x_size / 2.0;
-
-   _y_l = - _y_size / 2.0;
-   _y_h = + _y_size / 2.0;
-
-   RandomMapGenerate();
-   //only pub map pointcloud on request
-   ros::ServiceServer pub_glb_obs_service = n.advertiseService("/pub_glb_obs", pubGlbObs);
-   ros::spin();
-   pubSensedPoints();
-
-   // ros::Rate loop_rate(_sense_rate);
-   // while (ros::ok())
-   // {
-   //    ros::spinOnce();
-   //    loop_rate.sleep();
    // }
+
+   return;
+
+   /* ---------- only publish points around current position ---------- */
+   if (!_map_ok || !_has_odom)
+      return;
+
+   pcl::PointCloud<pcl::PointXYZ> localMap;
+
+   pcl::PointXYZ searchPoint(_state[0], _state[1], _state[2]);
+   pointIdxRadiusSearch.clear();
+   pointRadiusSquaredDistance.clear();
+
+   pcl::PointXYZ pt;
+
+   if (isnan(searchPoint.x) || isnan(searchPoint.y) || isnan(searchPoint.z))
+      return;
+
+   if (kdtreeLocalMap.radiusSearch(searchPoint, _sensing_range,
+                                   pointIdxRadiusSearch,
+                                   pointRadiusSquaredDistance) > 0)
+   {
+      for (size_t i = 0; i < pointIdxRadiusSearch.size(); ++i)
+      {
+         pt = cloudMap.points[pointIdxRadiusSearch[i]];
+         localMap.points.push_back(pt);
+      }
+   }
+   else
+   {
+      ROS_ERROR("[Map server] No obstacles .");
+      return;
+   }
+
+   localMap.width = localMap.points.size();
+   localMap.height = 1;
+   localMap.is_dense = true;
+
+   pcl::toROSMsg(localMap, localMap_pcd);
+   localMap_pcd.header.frame_id = "world";
+   _local_map_pub.publish(localMap_pcd);
+}
+
+void clickCallback(const geometry_msgs::PoseStamped &msg)
+{
+   double x = msg.pose.position.x;
+   double y = msg.pose.position.y;
+   double w = rand_w(eng);
+   double h;
+   pcl::PointXYZ pt_random;
+
+   x = floor(x / _resolution) * _resolution + _resolution / 2.0;
+   y = floor(y / _resolution) * _resolution + _resolution / 2.0;
+
+   int widNum = ceil(w / _resolution);
+
+   for (int r = -widNum / 2.0; r < widNum / 2.0; r++)
+      for (int s = -widNum / 2.0; s < widNum / 2.0; s++)
+      {
+         h = rand_h(eng);
+         int heiNum = ceil(h / _resolution);
+         for (int t = -1; t < heiNum; t++)
+         {
+            pt_random.x = x + (r + 0.5) * _resolution + 1e-2;
+            pt_random.y = y + (s + 0.5) * _resolution + 1e-2;
+            pt_random.z = (t + 0.5) * _resolution + 1e-2;
+            clicked_cloud_.points.push_back(pt_random);
+            cloudMap.points.push_back(pt_random);
+         }
+      }
+   clicked_cloud_.width = clicked_cloud_.points.size();
+   clicked_cloud_.height = 1;
+   clicked_cloud_.is_dense = true;
+
+   pcl::toROSMsg(clicked_cloud_, localMap_pcd);
+   localMap_pcd.header.frame_id = "world";
+   click_map_pub_.publish(localMap_pcd);
+
+   cloudMap.width = cloudMap.points.size();
+
+   return;
+}
+
+int main(int argc, char **argv)
+{
+   ros::init(argc, argv, "random_map_sensing");
+   ros::NodeHandle n("~");
+
+   _local_map_pub = n.advertise<sensor_msgs::PointCloud2>("local_cloud", 1);
+   _all_map_pub = n.advertise<sensor_msgs::PointCloud2>("global_cloud", 1);
+
+   _odom_sub = n.subscribe("odometry", 50, rcvOdometryCallbck);
+
+   click_map_pub_ =
+       n.advertise<sensor_msgs::PointCloud2>("/pcl_render_node/local_map", 1);
+   // ros::Subscriber click_sub = n.subscribe("/goal", 10, clickCallback);
+
+   n.param("init_state_x", _init_x, 0.0);
+   n.param("init_state_y", _init_y, 0.0);
+
+   n.param("map/x_size", _x_size, 50.0);
+   n.param("map/y_size", _y_size, 50.0);
+   n.param("map/z_size", _z_size, 5.0);
+   n.param("map/obs_num", _obs_num, 30);
+   n.param("map/resolution", _resolution, 0.1);
+   n.param("map/circle_num", circle_num_, 30);
+
+   n.param("ObstacleShape/lower_rad", _w_l, 0.3);
+   n.param("ObstacleShape/upper_rad", _w_h, 0.8);
+   n.param("ObstacleShape/lower_hei", _h_l, 3.0);
+   n.param("ObstacleShape/upper_hei", _h_h, 7.0);
+
+   n.param("ObstacleShape/radius_l", radius_l_, 7.0);
+   n.param("ObstacleShape/radius_h", radius_h_, 7.0);
+   n.param("ObstacleShape/z_l", z_l_, 7.0);
+   n.param("ObstacleShape/z_h", z_h_, 7.0);
+   n.param("ObstacleShape/theta", theta_, 7.0);
+
+   n.param("sensing/radius", _sensing_range, 10.0);
+   n.param("sensing/radius", _sense_rate, 10.0);
+
+   n.param("min_distance", _min_dist, 1.0);
+   n.param("seed", seed_, 0);
+   _x_l = -_x_size / 2.0;
+   _x_h = +_x_size / 2.0;
+
+   _y_l = -_y_size / 2.0;
+   _y_h = +_y_size / 2.0;
+
+   _obs_num = min(_obs_num, (int)_x_size * 10);
+   _z_limit = _z_size;
+
+   ros::Duration(0.5).sleep();
+
+   // RandomMapGenerate();
+   RandomMapGenerateCylinder();
+
+   ros::Rate loop_rate(_sense_rate);
+
+   while (ros::ok())
+   {
+      pubSensedPoints();
+      ros::spinOnce();
+      loop_rate.sleep();
+   }
 }
