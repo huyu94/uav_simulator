@@ -130,6 +130,7 @@ void rcvOdometryCallbck(const nav_msgs::Odometry &odom)
 int comp_time_count = 0;
 void renderSensedPoints(const ros::TimerEvent &event)
 {
+
     ros::Time t1 = ros::Time::now();
 
     if (!has_odom_)
@@ -155,7 +156,6 @@ void renderSensedPoints(const ros::TimerEvent &event)
     double time_frominit = (t_pattern - t_init).toSec();
 
     local_map->points.clear();
-
     if(dynamic_map.points.size() > 0)
     {
         // render 输入接收到的动态点云
@@ -167,26 +167,8 @@ void renderSensedPoints(const ros::TimerEvent &event)
         pub_dyncloud.publish(dynamic_points_pcd);
     }
     // trans and publish the dynamic point cloud, 发布动态点云
-    // ROS_INFO("Here");
     render.render_pointcloud(local_map, pos, q, time_frominit);
 
-    // ROS_WARN("local map size : %d ", local_map->size());
-    // ros::Time t_afterrender = ros::Time::now();
-    // double comp_time_temp = (t_afterrender - t1).toSec();
-    // myfile << comp_time_temp << endl;
-    // comp_time_vec.push_back(comp_time_temp);
-    // if (comp_time_count > 20)
-    // {
-    //     comp_time_vec.pop_front();
-    //     geometry_msgs::PoseStamped totaltime_pub;
-    //     totaltime_pub.pose.position.x = accumulate(comp_time_vec.begin(), comp_time_vec.end(), 0.0) / comp_time_vec.size();
-    //     comp_time_pub.publish(totaltime_pub);
-    //     ROS_INFO("Temp compute time = %lf, average compute time = %lf", comp_time_temp, totaltime_pub.pose.position.x);
-    // }
-    // else
-    // {
-    //     comp_time_count++;
-    // }
 
     local_map->width = local_map->points.size();
     local_map->height = 1;

@@ -10,33 +10,33 @@ SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopenmp")
 
 add_definitions(-DROOT_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/\")
 
-  find_package(Eigen3 REQUIRED)
-  find_package(OpenCV REQUIRED)
-  # find_package(Pangolin 0.4 REQUIRED)
-  find_package(GLEW REQUIRED)
-  find_package(OpenGL REQUIRED)
-  find_package(glfw3 REQUIRED)
-  find_package(catkin REQUIRED COMPONENTS
-      roscpp roslib cmake_modules pcl_ros sensor_msgs geometry_msgs nav_msgs quadrotor_msgs cv_bridge)
+find_package(Eigen3 REQUIRED)
+find_package(OpenCV REQUIRED)
+# find_package(Pangolin 0.4 REQUIRED)
+find_package(GLEW REQUIRED)
+find_package(OpenGL REQUIRED)
+find_package(glfw3 REQUIRED)
+find_package(catkin REQUIRED COMPONENTS
+    roscpp roslib cmake_modules pcl_ros sensor_msgs geometry_msgs nav_msgs quadrotor_msgs cv_bridge)
 
-      FIND_PACKAGE(Boost REQUIRED COMPONENTS filesystem iostreams program_options system serialization)
-      if(Boost_FOUND)
-        INCLUDE_DIRECTORIES(${Boost_INCLUDE_DIRS})
-        LINK_DIRECTORIES(${Boost_LIBRARY_DIRS})
-      endif()
+    FIND_PACKAGE(Boost REQUIRED COMPONENTS filesystem iostreams program_options system serialization)
+    if(Boost_FOUND)
+      INCLUDE_DIRECTORIES(${Boost_INCLUDE_DIRS})
+      LINK_DIRECTORIES(${Boost_LIBRARY_DIRS})
+    endif()
 
-      set(CMAKE_CXX_STANDARD_REQUIRED ON)
-      set(CMAKE_CXX_EXTENSIONS ON)
-      set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/modules/")
-      link_directories(${CMAKE_SOURCE_DIR}/lib)
+    set(CMAKE_CXX_STANDARD_REQUIRED ON)
+    set(CMAKE_CXX_EXTENSIONS ON)
+    set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/modules/")
+    link_directories(${CMAKE_SOURCE_DIR}/lib)
 
-  add_library(GLAD include/glad.c)
-  set(LIBS ${LIBS} GLAD)
+add_library(GLAD include/glad.c)
+set(LIBS ${LIBS} GLAD)
 
-  catkin_package(
-      DEPENDS Eigen
-      CATKIN_DEPENDS roscpp roslib pcl_ros image_transport
-  )
+catkin_package(
+    DEPENDS Eigen
+    CATKIN_DEPENDS roscpp roslib pcl_ros image_transport
+)
 
 # add_compile_options(-pg)
 # SET(catkin_LIBRARIES ${catkin_LIBRARIES} -pg)
