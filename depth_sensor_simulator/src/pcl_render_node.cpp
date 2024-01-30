@@ -55,8 +55,10 @@ ros::Publisher pub_depth;
 ros::Publisher pub_color;
 ros::Publisher pub_pose;
 ros::Publisher pub_pcl_wolrd;
+ros::Publisher pub_pcl_sensor;
 
 sensor_msgs::PointCloud2 local_map_pcl;
+sensor_msgs::PointCloud2 local_map_in_sensor_pcl;
 sensor_msgs::PointCloud2 local_depth_pcl;
 
 ros::Subscriber odom_sub;
@@ -336,7 +338,8 @@ void render_pcl_world()
 {
   //for debug purpose
   pcl::PointCloud<pcl::PointXYZ> localMap;
-  pcl::PointXYZ pt_in;
+  pcl::PointCloud<pcl::PointXYZ> localMapInSensor;
+  pcl::PointXYZ pt_in, pt_sensor;
 
   Eigen::Vector4d pose_in_camera;
   Eigen::Vector4d pose_in_world;
@@ -353,6 +356,10 @@ void render_pcl_world()
       pose_in_camera(1) = (v - cy) * depth / fy;
       pose_in_camera(2) = depth; 
       pose_in_camera(3) = 1.0;
+
+      pt_sensor.x = pose_in_camera(0);
+      pt_sensor.y = pose_in_camera(1);
+      pt_sensor.z = pose_in_camera(2);
       
       pose_in_world = cam2world * pose_in_camera;
 
@@ -364,19 +371,26 @@ void render_pcl_world()
       pt_in.x = pose_pt(0);
       pt_in.y = pose_pt(1);
       pt_in.z = pose_pt(2);
-
+      localMapInSensor.points.push_back(pt_sensor);
       localMap.points.push_back(pt_in);
     }
 
   localMap.width = localMap.points.size();
   localMap.height = 1;
   localMap.is_dense = true;
-
   pcl::toROSMsg(localMap, local_map_pcl);
   local_map_pcl.header.frame_id  = "world";
   local_map_pcl.header.stamp     = last_odom_stamp;
-
   pub_pcl_wolrd.publish(local_map_pcl);
+
+  localMapInSensor.width = localMapInSensor.points.size();
+  localMapInSensor.height = 1;
+  localMapInSensor.is_dense = true;
+  pcl::toROSMsg(localMapInSensor,local_map_in_sensor_pcl);
+  local_map_in_sensor_pcl.header.frame_id  = "sensor";
+  local_map_in_sensor_pcl.header.stamp = last_odom_stamp;
+  pub_pcl_sensor.publish(local_map_in_sensor_pcl);
+
 }
 
 void render_currentpose()
@@ -474,6 +488,7 @@ int main(int argc, char **argv)
   pub_color = nh.advertise<sensor_msgs::Image>("colordepth",1000);
   pub_pose  = nh.advertise<geometry_msgs::PoseStamped>("camera_pose",1000);
   pub_pcl_wolrd = nh.advertise<sensor_msgs::PointCloud2>("rendered_pcl",1);
+  pub_pcl_sensor = nh.advertise<sensor_msgs::PointCloud2>("rendered_pcl_in_sensor",1);
 
   double sensing_duration  = 1.0 / sensing_rate;
   double estimate_duration = 1.0 / estimation_rate;
