@@ -106,7 +106,7 @@ void RandomMapGenerate()
          {
             h = rand_h(eng);
             int heiNum = ceil(h / _resolution);
-            for (int t = -20; t < heiNum; t++)
+            for (int t = 0; t < heiNum; t++)
             {
                pt_random.x = x + (r + 0.5) * _resolution + 1e-2;
                pt_random.y = y + (s + 0.5) * _resolution + 1e-2;
@@ -248,7 +248,7 @@ void RandomMapGenerateCylinder()
          {
             h = rand_h(eng);
             int heiNum = ceil(h / _resolution);
-            for (int t = -30; t < heiNum; t++)
+            for (int t = 0; t < heiNum; t++)
             {
                double temp_x = x + (r + 0.5) * _resolution + 1e-2;
                double temp_y = y + (s + 0.5) * _resolution + 1e-2;
