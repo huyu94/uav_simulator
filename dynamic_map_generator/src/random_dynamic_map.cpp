@@ -356,3 +356,14 @@ Eigen::Vector3f RandomDynamicMap::sampleRandomVelocity2D() {
     return Eigen::Vector3f(random_sign * rand_v(eng_) * std::cos(rand_omega(eng_)),
                             random_sign * rand_v(eng_) * std::sin(rand_omega(eng_)), 0.0F);
 }
+
+// Eigen::Vector3f RandomDynamicMap::sampleRandomVelocity2D() {
+//     double v = 1.5;
+//     std::uniform_real_distribution<float> rand_omega(-M_PI, M_PI);
+//     std::uniform_int_distribution<> dis(0, 1);  // 定义一个从0到1的均匀分布
+
+//     int random_sign = dis(eng_) * 2 - 1;  // 生成一个随机的正负1
+
+//     return Eigen::Vector3f(random_sign *  v * std::cos(rand_omega(eng_)),
+//                             random_sign * v * std::sin(rand_omega(eng_)), 0.0F);
+// }

@@ -25,7 +25,7 @@ vector<float> pointRadiusSquaredDistance;
 int seed_;
 random_device rd;
 // default_random_engine eng(0);
-default_random_engine eng(seed_);
+default_random_engine eng;
 uniform_real_distribution<double> rand_x;
 uniform_real_distribution<double> rand_y;
 uniform_real_distribution<double> rand_w;
@@ -550,10 +550,13 @@ int main(int argc, char **argv)
    n.param("sensing/radius", _sensing_range, 10.0);
    n.param("sensing/radius", _sense_rate, 10.0);
 
+   bool use_wall_,use_cylinder_;
    n.param("min_distance", _min_dist, 1.0);
    n.param("seed", seed_, 0);
+   n.param("wall",use_wall_,false);
+   n.param("cylinder",use_cylinder_,false);
 
-
+   eng = std::default_random_engine(seed_); 
    
    _x_l = -_x_size / 2.0;
    _x_h = +_x_size / 2.0;
@@ -567,8 +570,14 @@ int main(int argc, char **argv)
    ros::Duration(0.5).sleep();
 
    // RandomMapGenerate();
-   // RandomMapGenerateCylinder();
-   // generateWall();
+   if(use_cylinder_)
+   {
+      RandomMapGenerateCylinder();  
+   }
+   if(use_wall_)
+   {
+      generateWall();
+   }
 
    ros::Rate loop_rate(_sense_rate);
 
