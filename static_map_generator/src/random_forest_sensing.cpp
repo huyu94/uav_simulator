@@ -451,6 +451,67 @@ void clickCallback(const geometry_msgs::PoseStamped &msg)
    return;
 }
 
+
+struct Cube {
+   Eigen::Vector3d center;
+   Eigen::Vector3d length;
+   Eigen::Matrix3d rotation;
+};
+
+void generateCube(Eigen::Vector3d pos, Eigen::Vector3d length)
+{
+   Cube cube;
+   cube.center = pos;
+   cube.length = length;
+   cube.rotation = Eigen::Matrix3d::Identity();
+
+   for(double x = pos(0) - length(0); x <= pos(0) + length(0); x+= _resolution)
+   {
+      for(double y = pos(1) - length(1); y <= pos(1) + length(1); y+= _resolution)
+      {
+         for(double z = pos(2) - length(2); z <= pos(2) + length(2); z+= _resolution)
+         {
+            pcl::PointXYZ pt;
+            pt.x = x;
+            pt.y = y;
+            pt.z = z;
+            cloudMap.push_back(pt);
+         }
+
+      }
+   }
+      
+}
+
+
+void generateWall()
+{
+   Eigen::Vector3d pos,l;
+   double wall_x_size = _x_size + 8.0;
+   double wall_y_size = _y_size + 8.0;
+   double wall_z_size = _z_size;
+
+   // 1. 
+   pos << - wall_x_size / 2.0, 0, wall_z_size / 2.0;
+   l << 1.0, wall_y_size/2, wall_z_size;
+   generateCube(pos,l);
+   // 2.
+   pos << wall_x_size / 2.0, 0, wall_z_size / 2.0;
+   l << 1.0, wall_y_size/2, wall_z_size;
+   generateCube(pos,l);
+
+   // 3.
+   pos << 0, - wall_y_size / 2.0, wall_z_size / 2.0;
+   l << wall_x_size/2, 1.0, wall_z_size;
+   generateCube(pos,l);
+
+   //4. 
+   pos << 0, wall_y_size / 2.0, wall_z_size / 2.0;
+   l << wall_x_size/2, 1.0, wall_z_size;
+   generateCube(pos,l);
+
+}
+
 int main(int argc, char **argv)
 {
    ros::init(argc, argv, "random_map_sensing");
@@ -506,7 +567,8 @@ int main(int argc, char **argv)
    ros::Duration(0.5).sleep();
 
    // RandomMapGenerate();
-   RandomMapGenerateCylinder();
+   // RandomMapGenerateCylinder();
+   // generateWall();
 
    ros::Rate loop_rate(_sense_rate);
 

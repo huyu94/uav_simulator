@@ -44,7 +44,7 @@ private:
     /* map parameters */
     float x_size_, y_size_, z_size_;          // map size
     float x_l_, x_h_, y_l_, y_h_, z_l_, z_h_; // map boundary
-    float v_h_;                               // vel max
+    float v_l_,v_h_;                               // vel max
     float resolution_;
     float sensing_rate_;
     float sensing_range_;

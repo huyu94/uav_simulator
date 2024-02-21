@@ -169,6 +169,10 @@ void renderSensedPoints(const ros::TimerEvent &event)
     // trans and publish the dynamic point cloud, 发布动态点云
     render.render_pointcloud(local_map, pos, q, time_frominit);
 
+    pcl::VoxelGrid<PointType> downSizeFilter;
+    downSizeFilter.setLeafSize(downsample_res, downsample_res, downsample_res);
+    downSizeFilter.setInputCloud(local_map);
+    downSizeFilter.filter(*local_map);
 
     local_map->width = local_map->points.size();
     local_map->height = 1;
